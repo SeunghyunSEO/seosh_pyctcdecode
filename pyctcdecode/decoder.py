@@ -28,6 +28,7 @@ from .language_model import (
     AbstractLanguageModel,
     HotwordScorer,
     LanguageModel,
+    MultiLanguageModel,
     load_unigram_set_from_arpa,
 )
 
@@ -448,7 +449,7 @@ class BeamSearchDecoderCTC:
                                 logit_score + p_char,
                             )
                         )
-
+            
             # lm scoring and beam pruning
             new_beams = _merge_beams(new_beams)
             scored_beams = self._get_lm_beams(
@@ -457,6 +458,10 @@ class BeamSearchDecoderCTC:
                 cached_lm_scores,
                 cached_p_lm_scores,
             )
+            
+            #if frame_idx + 1 == len(logits):
+            #    print(len(scored_beams))
+            
             # remove beam outliers
             max_score = max([b[-1] for b in scored_beams])
             scored_beams = [b for b in scored_beams if b[-1] >= max_score + beam_prune_logp]
@@ -482,10 +487,15 @@ class BeamSearchDecoderCTC:
             cached_p_lm_scores,
             is_eos=True,
         )
+        #print(len(scored_beams))
+        
         # remove beam outliers
         max_score = max([b[-1] for b in scored_beams])
         scored_beams = [b for b in scored_beams if b[-1] >= max_score + beam_prune_logp]
         trimmed_beams = _sort_and_trim_beams(scored_beams, beam_width)
+        
+        #print(len(trimmed_beams))
+        #print()
         # remove unnecessary information from beams
         output_beams = [
             (
@@ -497,6 +507,11 @@ class BeamSearchDecoderCTC:
             )
             for text, _, _, _, text_frames, _, logit_score, lm_score in trimmed_beams
         ]
+
+        #print(len(scored_beams))
+        #print(len(trimmed_beams))
+        #print(len(output_beams))
+        #print()
         return output_beams
 
     def decode_beams(
@@ -647,7 +662,18 @@ class BeamSearchDecoderCTC:
             hotword_weight=hotword_weight,
             lm_start_state=lm_start_state,
         )
-        return decoded_beams[0][0]
+        
+        #return decoded_beams[0][0]
+
+        #print(decoded_beams)
+        #print()
+        #print(decoded_beams[0])
+        #print()
+        #print(decoded_beams[0][0])
+        #print()
+        
+        #return decoded_beams[0][0]
+        return [ {"hyp" : beam[0], "am_score": beam[-2], "lm_score": beam[-1]} for beam in decoded_beams][:50]
 
     def decode_batch(
         self,
@@ -780,7 +806,7 @@ class BeamSearchDecoderCTC:
 
 def build_ctcdecoder(
     labels: List[str],
-    kenlm_model_path: Optional[str] = None,
+    kenlm_model_paths = None,
     unigrams: Optional[Collection[str]] = None,
     alpha: float = DEFAULT_ALPHA,
     beta: float = DEFAULT_BETA,
@@ -801,29 +827,42 @@ def build_ctcdecoder(
     Returns:
         instance of BeamSearchDecoderCTC
     """
-    kenlm_model = None if kenlm_model_path is None else kenlm.Model(kenlm_model_path)
-    if kenlm_model_path is not None and kenlm_model_path.endswith(".arpa"):
-        logger.info("Using arpa instead of binary LM file, decoder instantiation might be slow.")
-    if unigrams is None and kenlm_model_path is not None:
-        if kenlm_model_path.endswith(".arpa"):
-            unigrams = load_unigram_set_from_arpa(kenlm_model_path)
-        else:
-            logger.warning(
-                "Unigrams not provided and cannot be automatically determined from LM file (only "
-                "arpa format). Decoding accuracy might be reduced."
-            )
+
     alphabet = Alphabet.build_alphabet(labels)
-    if unigrams is not None:
-        verify_alphabet_coverage(alphabet, unigrams)
-    if kenlm_model is not None:
-        language_model: Optional[AbstractLanguageModel] = LanguageModel(
-            kenlm_model,
-            unigrams,
-            alpha=alpha,
-            beta=beta,
-            unk_score_offset=unk_score_offset,
-            score_boundary=lm_score_boundary,
-        )
+    
+    def get_lm(kenlm_model_path, alphabet, unigrams, alpha, beta, unk_score_offset, lm_score_boundary):
+        kenlm_model = None if kenlm_model_path is None else kenlm.Model(kenlm_model_path)
+        if kenlm_model_path is not None and kenlm_model_path.endswith(".arpa"):
+            logger.info("Using arpa instead of binary LM file, decoder instantiation might be slow.")
+        if unigrams is None and kenlm_model_path is not None:
+            if kenlm_model_path.endswith(".arpa"):
+                unigrams = load_unigram_set_from_arpa(kenlm_model_path)
+                #pass
+            else:
+                logger.warning(
+                    "Unigrams not provided and cannot be automatically determined from LM file (only "
+                    "arpa format). Decoding accuracy might be reduced."
+                )
+        #import pdb; pdb.set_trace()
+        if unigrams is not None:
+            verify_alphabet_coverage(alphabet, unigrams)
+        if kenlm_model is not None:
+            language_model: Optional[AbstractLanguageModel] = LanguageModel(
+                kenlm_model,
+                unigrams,
+                alpha=alpha,
+                beta=beta,
+                unk_score_offset=unk_score_offset,
+                score_boundary=lm_score_boundary,
+            )
+        else:
+            language_model = None
+        return language_model
+    
+    if len(kenlm_model_paths)>1:
+        lms = []
+        for kenlm_model_path, uni, a, b, unk, l in zip(kenlm_model_paths, unigrams, alpha, beta, unk_score_offset, lm_score_boundary):
+            lms.append(get_lm(kenlm_model_path, alphabet, uni, a, b, unk, l))
+        return BeamSearchDecoderCTC(alphabet, MultiLanguageModel(lms))
     else:
-        language_model = None
-    return BeamSearchDecoderCTC(alphabet, language_model)
+        return BeamSearchDecoderCTC(alphabet, get_lm(kenlm_model_paths[0], alphabet, unigrams[0], alpha[0], beta[0], unk_score_offset[0], lm_score_boundary[0]))

@@ -416,5 +416,5 @@ class MultiLanguageModel(AbstractLanguageModel):
             lm_score, lm_end_state = lm.score(lm_prev_state, word, is_last_word=is_last_word)
             score += lm_score
             end_state.append(lm_end_state)
-        score = score / len(self._language_models)
+        # score = score / len(self._language_models)
         return score, end_state

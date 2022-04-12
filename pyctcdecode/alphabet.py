@@ -13,7 +13,8 @@ UNK_BPE_TOKEN = "▁⁇▁"  # nosec # representation of special UNK token in BP
 
 # special tokens are usually encode with things like `[]` or `<>`
 SPECIAL_TOKEN_PTN = re.compile(r"^[<\[].+[>\]]$")
-BLANK_TOKEN_PTN = re.compile(r"^[<\[]pad[>\]]$", flags=re.IGNORECASE)
+#BLANK_TOKEN_PTN = re.compile(r"^[<\[]pad[>\]]$", flags=re.IGNORECASE)
+BLANK_TOKEN_PTN = re.compile(r"^[<\[]s[>\]]$",flags=re.IGNORECASE)
 UNK_TOKEN_PTN = re.compile(r"^[<\[]unk[>\]]$", flags=re.IGNORECASE)
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ def _normalize_bpe_alphabet(labels: List[str]) -> List[str]:
         if BLANK_TOKEN_PTN.match(label):
             logger.info("Found %s in vocabulary, substituting with %s.", label, "")
             normalized_labels[n] = ""
+    #import pdb; pdb.set_trace()
     if "" not in normalized_labels:
         logger.info("CTC blank char '' not found, appending to end.")
         normalized_labels.append("")
